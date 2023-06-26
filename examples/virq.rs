@@ -14,6 +14,7 @@ This can be applied for all the 52 interrupts declared in e310x/interrupts.rs.
 
 extern crate panic_halt;
 
+use e310x_hal::e310x::Priority;
 use hifive1::{hal::prelude::*, hal::DeviceResources, pin, sprintln};
 
 use riscv::register::mstatus;
@@ -25,12 +26,15 @@ use riscv_rt::entry;
 /* Handler for the GPIO0 interrupt */
 #[no_mangle]
 #[allow(non_snake_case)]
-fn RTC() {
-    sprintln!("We reached the RTC interrupt!");
-    unsafe {
-        let mut rtc = hifive1::hal::DeviceResources::steal().peripherals.RTC.constrain();
-        rtc.set_rtccmp(rtc.rtc_lo() + 10000);
-    }
+unsafe fn RTC() {
+    sprintln!("-------------------");
+    sprintln!("!start RTC");
+    // increase rtccmp to clear HW interrupt
+    let rtc = DeviceResources::steal().peripherals.RTC;
+    let rtccmp = rtc.rtccmp.read().bits();
+    rtc.rtccmp.write(|w| w.bits(rtccmp + 65536 * 2));
+    sprintln!("!stop RTC (rtccmp = {})", rtccmp);
+    sprintln!("-------------------");
     /* Clear the GPIO pending interrupt */
     // unsafe {
     //     let gpio_block = &*hifive1::hal::e310x::GPIO0::ptr();
@@ -59,6 +63,10 @@ fn main() -> ! {
         sysclock,
     );
 
+    // Disable watchdog
+    let wdg = peripherals.WDOG;
+    wdg.wdogcfg.modify(|_, w| w.enalways().clear_bit());
+
     /* Set GPIO4 (pin 12) as input */
     // let gpio4 = pin!(gpio, dig12);
     // let input = gpio.pin4.into_pull_up_input();
@@ -67,30 +75,33 @@ fn main() -> ! {
     /* Wrapper for easy access */
     let mut plic = resources.core_peripherals.plic;
 
-     let mut rtc = peripherals.RTC.constrain();
-    rtc.disable();
-    rtc.set_scale(0);
-    rtc.set_rtc(0);
-    rtc.set_rtccmp(10000);
-    rtc.enable();
+   
     sprintln!("Init!");
     /* Unsafe block */
     unsafe {
         plic.reset();
         /* Get raw PLIC pointer */
-        //let rplic = &*hifive1::hal::e310x::PLIC::ptr();
-        plic.set_threshold(e310x_hal::e310x::Priority::P1);
         plic.enable_interrupt(hifive1::hal::e310x::Interrupt::RTC);
-        hifive1::hal::e310x::PLIC::enable();
-        /* Activate global interrupts (mie bit) */
-        riscv::register::mie::set_mext();
-        hifive1::hal::e310x::PLIC::set_priority(
-            &mut plic,
-            hifive1::hal::e310x::Interrupt::RTC,
-            e310x_hal::e310x::Priority::P7,
-        );
-        mstatus::set_mie();
+        plic.set_priority(hifive1::hal::e310x::Interrupt::RTC, Priority::P7);
+        plic.set_threshold(e310x_hal::e310x::Priority::P1);
     }
+    sprintln!("done!");
+    let mut rtc = peripherals.RTC.constrain();
+    rtc.disable();
+    rtc.set_scale(0);
+    rtc.set_rtc(0);
+    rtc.set_rtccmp(10000);
+    rtc.enable();
+
+    sprintln!("done!");
+    unsafe {
+        e310x::PLIC::enable();
+        // mstatus::set_mie();
+        riscv::interrupt::enable();
+        // hifive1::hal::e310x::PLIC::enable();
+    }
+
+    sprintln!("done!");
     loop{}
 
 }

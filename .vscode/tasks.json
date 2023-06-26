@@ -6,7 +6,7 @@
             "command": "cargo",
             "args": [
                 "build",
-                 "--features=board-redv,virq",
+                 "--features=board-redv,v-extern",
                  "--example=virq"
             ],
             "problemMatcher": [
