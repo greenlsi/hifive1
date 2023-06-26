@@ -20,18 +20,22 @@ use riscv::register::mstatus;
 use riscv_rt::entry;
 
 /* we have chosen the GPIO4 (a.k.a dig12) for this example */
-const GPIO_N: usize = 4;
+// const GPIO_N: usize = 4;
 
 /* Handler for the GPIO0 interrupt */
 #[no_mangle]
 #[allow(non_snake_case)]
-fn GPIO4() {
-    sprintln!("We reached the GPIO4 interrupt!");
-    /* Clear the GPIO pending interrupt */
+fn RTC() {
+    sprintln!("We reached the RTC interrupt!");
     unsafe {
-        let gpio_block = &*hifive1::hal::e310x::GPIO0::ptr();
-        gpio_block.fall_ip.write(|w| w.bits(1 << GPIO_N));
+        let mut rtc = hifive1::hal::DeviceResources::steal().peripherals.RTC.constrain();
+        rtc.set_rtccmp(rtc.rtc_lo() + 10000);
     }
+    /* Clear the GPIO pending interrupt */
+    // unsafe {
+    //     let gpio_block = &*hifive1::hal::e310x::GPIO0::ptr();
+    //     gpio_block.fall_ip.write(|w| w.bits(1 << GPIO_N));
+    // }
 }
 
 /* Code adapted from https://github.com/riscv-rust/riscv-rust-quickstart/blob/interrupt-test/examples/interrupt.rs*/
@@ -57,33 +61,36 @@ fn main() -> ! {
 
     /* Set GPIO4 (pin 12) as input */
     // let gpio4 = pin!(gpio, dig12);
-    let input = gpio.pin4.into_pull_up_input();
-    //let input = gpio4.into_pull_up_input();
+    // let input = gpio.pin4.into_pull_up_input();
+    // let input = gpio4.into_pull_up_input();
 
     /* Wrapper for easy access */
     let mut plic = resources.core_peripherals.plic;
 
+     let mut rtc = peripherals.RTC.constrain();
+    rtc.disable();
+    rtc.set_scale(0);
+    rtc.set_rtc(0);
+    rtc.set_rtccmp(10000);
+    rtc.enable();
+    sprintln!("Init!");
     /* Unsafe block */
     unsafe {
+        plic.reset();
         /* Get raw PLIC pointer */
         //let rplic = &*hifive1::hal::e310x::PLIC::ptr();
+        plic.set_threshold(e310x_hal::e310x::Priority::P1);
+        plic.enable_interrupt(hifive1::hal::e310x::Interrupt::RTC);
+        hifive1::hal::e310x::PLIC::enable();
+        /* Activate global interrupts (mie bit) */
+        riscv::register::mie::set_mext();
         hifive1::hal::e310x::PLIC::set_priority(
             &mut plic,
-            hifive1::hal::e310x::Interrupt::GPIO4,
+            hifive1::hal::e310x::Interrupt::RTC,
             e310x_hal::e310x::Priority::P7,
         );
-        let gpio_block = &*hifive1::hal::e310x::GPIO0::ptr();
-        /* Enable GPIO fall interrupts */
-        gpio_block.fall_ie.write(|w| w.bits(1 << GPIO_N));
-        gpio_block.rise_ie.write(|w| w.bits(0x0));
-        /* Clear pending interrupts from previous states */
-        gpio_block.fall_ip.write(|w| w.bits(0xffffffff));
-        gpio_block.rise_ip.write(|w| w.bits(0x0fffffff));
-
-        /* Activate global interrupts (mie bit) */
         mstatus::set_mie();
-        plic.set_threshold(e310x_hal::e310x::Priority::P1);
-        plic.enable_interrupt(hifive1::hal::e310x::Interrupt::GPIO4);
     }
-    loop {}
+    loop{}
+
 }
