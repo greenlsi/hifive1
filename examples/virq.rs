@@ -2,7 +2,7 @@
 #![no_std]
 
 /*
- Demonstration on how to use the feature "virq" from e310x-hal.
+ Demonstration on how to use the feature "v-extern" from e310x-hal.
 This feature enables a kind of vectorized interrupt matching for
 all 52 the external interrupts that e310x has. It simply offers a convenient
 way to handle each interrupt separately with a function called as the interrupt source.
@@ -14,16 +14,11 @@ This can be applied for all the 52 interrupts declared in e310x/interrupts.rs.
 
 extern crate panic_halt;
 
-use e310x_hal::e310x::Priority;
+use e310x_hal::e310x::{Interrupt, Priority, PLIC};
 use hifive1::{hal::prelude::*, hal::DeviceResources, pin, sprintln};
-
-use riscv::register::mstatus;
 use riscv_rt::entry;
 
-/* we have chosen the GPIO4 (a.k.a dig12) for this example */
-// const GPIO_N: usize = 4;
-
-/* Handler for the GPIO0 interrupt */
+/* Handler for the RTC interrupt */
 #[no_mangle]
 #[allow(non_snake_case)]
 unsafe fn RTC() {
@@ -35,14 +30,8 @@ unsafe fn RTC() {
     rtc.rtccmp.write(|w| w.bits(rtccmp + 65536 * 2));
     sprintln!("!stop RTC (rtccmp = {})", rtccmp);
     sprintln!("-------------------");
-    /* Clear the GPIO pending interrupt */
-    // unsafe {
-    //     let gpio_block = &*hifive1::hal::e310x::GPIO0::ptr();
-    //     gpio_block.fall_ip.write(|w| w.bits(1 << GPIO_N));
-    // }
 }
 
-/* Code adapted from https://github.com/riscv-rust/riscv-rust-quickstart/blob/interrupt-test/examples/interrupt.rs*/
 #[entry]
 fn main() -> ! {
     /* Get the ownership of the device resources singleton */
@@ -67,41 +56,39 @@ fn main() -> ! {
     let wdg = peripherals.WDOG;
     wdg.wdogcfg.modify(|_, w| w.enalways().clear_bit());
 
-    /* Set GPIO4 (pin 12) as input */
-    // let gpio4 = pin!(gpio, dig12);
-    // let input = gpio.pin4.into_pull_up_input();
-    // let input = gpio4.into_pull_up_input();
+    sprintln!("Configuring PLIC...");
+    // First, we make sure that all PLIC the interrupts are disabled and set the interrupts priorities
+    PLIC::disable();
+    PLIC::priorities().reset::<Interrupt>();
+    // Safety: interrupts are disabled
+    unsafe { PLIC::priorities().set_priority(Interrupt::RTC, Priority::P7) };
 
-    /* Wrapper for easy access */
-    let mut plic = resources.core_peripherals.plic;
-
-   
-    sprintln!("Init!");
-    /* Unsafe block */
+    // Next, we configure the PLIC context for our use case
+    let ctx = PLIC::ctx0();
+    ctx.enables().disable_all::<Interrupt>();
+    // Safety: we are the only hart running and we have not enabled any interrupts yet
     unsafe {
-        plic.reset();
-        /* Get raw PLIC pointer */
-        plic.enable_interrupt(hifive1::hal::e310x::Interrupt::RTC);
-        plic.set_priority(hifive1::hal::e310x::Interrupt::RTC, Priority::P7);
-        plic.set_threshold(e310x_hal::e310x::Priority::P1);
-    }
+        ctx.enables().enable(Interrupt::RTC);
+        ctx.threshold().set_threshold(Priority::P1);
+    };
     sprintln!("done!");
+
+    sprintln!("Configuring RTC...");
     let mut rtc = peripherals.RTC.constrain();
     rtc.disable();
     rtc.set_scale(0);
     rtc.set_rtc(0);
     rtc.set_rtccmp(10000);
     rtc.enable();
-
     sprintln!("done!");
+
+    sprintln!("Enabling interrupts...");
     unsafe {
-        e310x::PLIC::enable();
-        // mstatus::set_mie();
         riscv::interrupt::enable();
-        // hifive1::hal::e310x::PLIC::enable();
+        PLIC::enable();
     }
-
-    sprintln!("done!");
-    loop{}
-
+    loop {
+        sprintln!("Going to sleep!");
+        unsafe { riscv::asm::wfi() };
+    }
 }
