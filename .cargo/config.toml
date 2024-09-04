@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "riscv32", target_os = "none"))']
+runner = "qemu-system-riscv32 -machine sifive_e,revb=true -nographic -kernel"
+# runner = "riscv64-unknown-elf-gdb -q -x gdb_init"
+rustflags = [
+  "-C", "link-arg=-Thifive1-link.x",
+]
+
+[build]
+target = "riscv32imac-unknown-none-elf"
