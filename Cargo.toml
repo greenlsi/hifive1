@@ -12,8 +12,8 @@ edition = "2021"
 [dependencies]
 e310x-hal = {git = "https://github.com/greenlsi/e310x-hal"}
 embedded-hal = "0.2.5"
-riscv = { git = "https://github.com/rust-embedded/riscv", branch = "riscv-pac-only", features = ["critical-section-single-hart"]} # TODO use crates.io
-riscv-rt = { git = "https://github.com/rust-embedded/riscv", branch = "riscv-pac-only" } # TODO use crates.io
+riscv = { git = "https://github.com/rust-embedded/riscv", branch = "master", features = ["critical-section-single-hart"]} # TODO use crates.io
+riscv-rt = { git = "https://github.com/rust-embedded/riscv", branch = "master" } # TODO use crates.io
 nb = "1.0.0"
 panic-halt = "0.2.0"
 
